@@ -527,17 +527,18 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; overflow-x: hidden; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .ii-root { position: relative; width: 100%; }
   .ii-wrap { position: relative; width: 100%; max-width: 100%; margin: 0 auto; display: block; }
   .ii-img { display: block; width: 100%; height: auto; }
   .ii-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
   .ii-node {
     position: absolute;
-    width: 8.5%;
+    width: 7%;
     aspect-ratio: 1 / 1;
-    min-width: 40px;
-    max-width: 68px;
+    min-width: 34px;
+    max-width: 56px;
     transform: translate(-50%, -50%);
     border-radius: 9999px;
     background: #0856c9;
@@ -550,13 +551,13 @@
     cursor: pointer;
     z-index: 20;
   }
-  .ii-node i { font-size: clamp(18px, 3.5vw, 30px); pointer-events: none; }
+  .ii-node i { font-size: clamp(15px, 3vw, 25px); pointer-events: none; }
   .ii-order {
     position: absolute;
     top: -8%;
     right: -8%;
     width: 44%;
-    max-width: 22px;
+    max-width: 20px;
     aspect-ratio: 1 / 1;
     background: #660000;
     color: #fff;
@@ -564,59 +565,148 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: clamp(10px, 1.6vw, 13px);
+    font-size: clamp(9px, 1.5vw, 12px);
     font-weight: 700;
     line-height: 1;
     pointer-events: none;
   }
   .ii-tooltip {
     position: absolute;
-    transform: translate(-50%, -100%);
+    display: none;
     background: #0856c9;
     color: #fff;
     padding: 10px 14px;
     border-radius: 8px;
     font-size: clamp(16px, 2.4vw, 20px);
     line-height: 1.4;
-    max-width: 280px;
+    max-width: min(280px, 90vw);
     width: max-content;
     box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-    z-index: 50;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease;
+    z-index: 100;
     pointer-events: none;
-    margin-top: -14px;
   }
   .ii-tooltip::after {
     content: "";
     position: absolute;
-    bottom: -7px;
-    left: 50%;
+    left: var(--arrow-x, 50%);
     transform: translateX(-50%);
-    border-width: 7px 7px 0 7px;
+    width: 0;
+    height: 0;
     border-style: solid;
+  }
+  .ii-tooltip:not(.below)::after {
+    bottom: -7px;
+    border-width: 7px 7px 0 7px;
     border-color: #0856c9 transparent transparent transparent;
   }
-  .ii-tooltip.show { opacity: 1; visibility: visible; }
+  .ii-tooltip.below::after {
+    top: -7px;
+    border-width: 0 7px 7px 7px;
+    border-color: transparent transparent #0856c9 transparent;
+  }
+  .ii-fs-btn {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    z-index: 120;
+    width: 38px;
+    height: 38px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(8, 86, 201, 0.9);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+  .ii-fs-btn:hover { background: #0856c9; }
+  .ii-root:fullscreen,
+  .ii-root:-webkit-full-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+  }
+  .ii-root:fullscreen .ii-wrap,
+  .ii-root:-webkit-full-screen .ii-wrap { width: auto; height: auto; max-width: 100vw; max-height: 100vh; }
+  .ii-root:fullscreen .ii-img,
+  .ii-root:-webkit-full-screen .ii-img { width: auto; height: auto; max-width: 100vw; max-height: 100vh; }
 </style>
 </head>
 <body>
-<div class="ii-wrap" id="iiWrap">
-  <img class="ii-img" id="iiImg" alt="interactive" />
-  <svg class="ii-svg" id="iiSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+<div class="ii-root" id="iiRoot">
+  <div class="ii-wrap" id="iiWrap">
+    <img class="ii-img" id="iiImg" alt="interactive" />
+    <svg class="ii-svg" id="iiSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <button class="ii-fs-btn" id="iiFsBtn" title="Full screen" aria-label="Full screen">
+      <i class="fa-solid fa-expand"></i>
+    </button>
+  </div>
 </div>
 <script>
 (function(){
   var DATA = ${dataJson};
+  var root = document.getElementById("iiRoot");
   var wrap = document.getElementById("iiWrap");
   var img = document.getElementById("iiImg");
   var svg = document.getElementById("iiSvg");
+  var fsBtn = document.getElementById("iiFsBtn");
 
   img.src = DATA.image;
   img.style.opacity = DATA.opacity;
 
-  // Nodes
+  // ---- Tooltips (one visible at a time, kept on top and inside bounds) ----
+  var activeTip = null, activeNode = null;
+
+  function nodeRadius(){
+    var el = wrap.querySelector(".ii-node");
+    return el ? el.offsetWidth / 2 : 24;
+  }
+
+  function positionTip(tip, n){
+    tip.style.display = "block";
+    var W = wrap.clientWidth, H = wrap.clientHeight;
+    var r = nodeRadius();
+    var cx = (n.xPct / 100) * W;
+    var cy = (n.yPct / 100) * H;
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var m = 8;
+    // Clamp horizontally so the tooltip never gets cut off.
+    var left = Math.max(m, Math.min(cx - tw / 2, W - tw - m));
+    tip.style.left = left + "px";
+    // Keep the arrow pointing at the node even after clamping.
+    var arrowX = Math.max(12, Math.min(cx - left, tw - 12));
+    tip.style.setProperty("--arrow-x", arrowX + "px");
+    // Prefer above the node; flip below if there isn't room.
+    if (cy - r - 10 - th < m) {
+      tip.classList.add("below");
+      tip.style.top = (cy + r + 10) + "px";
+    } else {
+      tip.classList.remove("below");
+      tip.style.top = (cy - r - 10 - th) + "px";
+    }
+  }
+
+  function showTip(tip, n){
+    if (activeTip && activeTip !== tip) hideTip();
+    activeTip = tip; activeNode = n;
+    positionTip(tip, n);
+  }
+
+  function hideTip(){
+    if (activeTip) {
+      activeTip.style.display = "none";
+      activeTip.classList.remove("below");
+    }
+    activeTip = null; activeNode = null;
+  }
+
+  // ---- Nodes ----
   DATA.nodes.forEach(function(n, idx){
     var node = document.createElement("div");
     node.className = "ii-node";
@@ -627,22 +717,20 @@
     if (n.text && n.text.trim().length) {
       var tip = document.createElement("div");
       tip.className = "ii-tooltip";
-      tip.style.left = n.xPct + "%";
-      tip.style.top = n.yPct + "%";
       tip.textContent = n.text;
       wrap.appendChild(tip);
 
-      var show = function(){ tip.classList.add("show"); };
-      var hide = function(){ tip.classList.remove("show"); };
-      node.addEventListener("mouseenter", show);
-      node.addEventListener("mouseleave", hide);
+      node.addEventListener("mouseenter", function(){ showTip(tip, n); });
+      node.addEventListener("mouseleave", hideTip);
       node.addEventListener("click", function(e){
         e.stopPropagation();
-        tip.classList.toggle("show");
+        if (activeTip === tip) hideTip(); else showTip(tip, n);
       });
     }
     wrap.appendChild(node);
   });
+
+  document.addEventListener("click", hideTip);
 
   function cardinalDir(dx, dy){
     if (Math.abs(dx) >= Math.abs(dy)) {
@@ -671,8 +759,7 @@
     var old = svg.querySelectorAll("path.ii-line");
     old.forEach(function(p){ p.remove(); });
 
-    var nodeEl = wrap.querySelector(".ii-node");
-    var r = nodeEl ? nodeEl.offsetWidth / 2 : Math.max(20, w * 0.04);
+    var r = nodeRadius();
     var pts = DATA.nodes.map(function(n){
       return { x: (n.xPct/100)*w, y: (n.yPct/100)*h };
     });
@@ -686,7 +773,36 @@
       path.setAttribute("stroke-linecap", "round");
       svg.appendChild(path);
     }
+    if (activeTip && activeNode) positionTip(activeTip, activeNode);
   }
+
+  // ---- Full screen ----
+  fsBtn.addEventListener("click", function(e){
+    e.stopPropagation();
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      var req = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (req) {
+        try {
+          var p = req.call(root);
+          if (p && p.catch) p.catch(function(){});
+        } catch (err) {}
+      }
+    }
+  });
+
+  function onFsChange(){
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    fsBtn.innerHTML = fsEl
+      ? '<i class="fa-solid fa-compress"></i>'
+      : '<i class="fa-solid fa-expand"></i>';
+    hideTip();
+    setTimeout(draw, 60);
+  }
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
 
   if (img.complete) { draw(); } else { img.addEventListener("load", draw); }
   window.addEventListener("resize", draw);
