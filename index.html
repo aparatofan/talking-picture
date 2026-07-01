@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive Image Editor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+  />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: "#0856c9",
+            accent: "#660000",
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    /* Node marker on the editing canvas */
+    .ie-node {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      margin-left: -20px;
+      margin-top: -20px;
+      border-radius: 9999px;
+      background: #0856c9;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+      border: 2px solid #ffffff;
+      z-index: 20;
+      transition: transform 0.08s ease;
+      user-select: none;
+    }
+    .ie-node:hover {
+      transform: scale(1.08);
+    }
+    .ie-node.dragging {
+      cursor: grabbing;
+      transform: scale(1.12);
+      z-index: 40;
+    }
+    .ie-node .ie-order {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      background: #660000;
+      color: #fff;
+      font-size: 10px;
+      line-height: 16px;
+      width: 16px;
+      height: 16px;
+      border-radius: 9999px;
+      text-align: center;
+      font-weight: 700;
+    }
+    #canvasWrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #bgImage {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    #linesSvg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+    /* Popover for editing tooltip text */
+    #popover {
+      position: absolute;
+      z-index: 60;
+      width: 250px;
+      background: #0856c9;
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    #popover::after {
+      content: "";
+      position: absolute;
+      bottom: -8px;
+      left: 20px;
+      border-width: 8px 8px 0 8px;
+      border-style: solid;
+      border-color: #0856c9 transparent transparent transparent;
+    }
+    .hidden-imp {
+      display: none !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+  <!-- Top bar -->
+  <header class="bg-white shadow sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-microphone-lines text-brand text-xl"></i>
+        <h1 class="text-lg font-semibold">Interactive Image Editor</h1>
+      </div>
+      <button
+        id="exportBtn"
+        class="inline-flex items-center gap-2 bg-brand hover:bg-blue-800 text-white font-semibold px-4 py-2 rounded-lg shadow transition disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled
+      >
+        <i class="fa-solid fa-file-export"></i>
+        Export HTML
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+    <!-- Setup panel -->
+    <aside class="bg-white rounded-xl shadow p-5 h-fit">
+      <h2 class="font-semibold text-slate-700 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-sliders text-brand"></i> Setup
+      </h2>
+
+      <label
+        class="block w-full text-center cursor-pointer bg-brand hover:bg-blue-800 text-white font-medium px-4 py-2 rounded-lg transition mb-5"
+      >
+        <i class="fa-solid fa-image mr-1"></i> Upload Background Image
+        <input id="fileInput" type="file" accept="image/*" class="hidden" />
+      </label>
+
+      <div class="mb-5">
+        <label class="flex justify-between text-sm font-medium text-slate-600 mb-1">
+          <span>Background opacity</span>
+          <span id="opacityVal">70%</span>
+        </label>
+        <input
+          id="opacitySlider"
+          type="range"
+          min="0"
+          max="100"
+          value="70"
+          class="w-full accent-brand"
+        />
+      </div>
+
+      <div class="text-sm text-slate-500 leading-relaxed border-t pt-4">
+        <p class="font-medium text-slate-600 mb-1">How to use</p>
+        <ul class="list-disc list-inside space-y-1">
+          <li>Click the image to drop a node.</li>
+          <li>Drag a node to reposition it.</li>
+          <li>Click a node to edit its tooltip or delete it.</li>
+          <li>Nodes connect automatically in placement order.</li>
+        </ul>
+      </div>
+
+      <div class="mt-4 pt-4 border-t text-sm">
+        <span class="text-slate-500">Nodes placed:</span>
+        <span id="nodeCount" class="font-semibold text-brand">0</span>
+      </div>
+    </aside>
+
+    <!-- Canvas area -->
+    <section class="bg-white rounded-xl shadow p-5">
+      <div
+        id="emptyState"
+        class="flex flex-col items-center justify-center text-center text-slate-400 py-24 border-2 border-dashed border-slate-200 rounded-lg"
+      >
+        <i class="fa-solid fa-cloud-arrow-up text-5xl mb-3"></i>
+        <p class="font-medium">Upload a background image to get started</p>
+      </div>
+
+      <div id="canvasContainer" class="hidden-imp overflow-auto">
+        <div id="canvasWrap">
+          <img id="bgImage" alt="background" style="opacity: 0.7" />
+          <svg id="linesSvg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0,0 L10,5 L0,10 z" fill="#660000" />
+              </marker>
+            </defs>
+          </svg>
+          <!-- Node markers injected here -->
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Editing popover -->
+  <div id="popover" class="hidden-imp">
+    <label class="block text-sm font-medium mb-1">Tooltip text</label>
+    <textarea
+      id="popoverText"
+      rows="3"
+      class="w-full rounded-md text-slate-800 p-2 text-sm resize-none focus:outline-none"
+      placeholder="Type the tooltip shown for this node..."
+    ></textarea>
+    <div class="flex justify-between items-center mt-3">
+      <button
+        id="deleteNodeBtn"
+        class="inline-flex items-center gap-1 bg-accent hover:bg-red-900 text-white text-sm px-3 py-1.5 rounded-md transition"
+      >
+        <i class="fa-solid fa-trash"></i> Delete
+      </button>
+      <button
+        id="saveNodeBtn"
+        class="inline-flex items-center gap-1 bg-white text-brand font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-slate-100 transition"
+      >
+        <i class="fa-solid fa-check"></i> Done
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ---- State ----
+    const state = {
+      imageData: null, // base64 data URL
+      opacity: 0.7,
+      nodes: [], // { id, xPct, yPct, text }
+    };
+    let nodeSeq = 0;
+    let activeNodeId = null; // node currently open in popover
+
+    // ---- Elements ----
+    const fileInput = document.getElementById("fileInput");
+    const bgImage = document.getElementById("bgImage");
+    const opacitySlider = document.getElementById("opacitySlider");
+    const opacityVal = document.getElementById("opacityVal");
+    const canvasWrap = document.getElementById("canvasWrap");
+    const canvasContainer = document.getElementById("canvasContainer");
+    const emptyState = document.getElementById("emptyState");
+    const linesSvg = document.getElementById("linesSvg");
+    const exportBtn = document.getElementById("exportBtn");
+    const nodeCountEl = document.getElementById("nodeCount");
+    const popover = document.getElementById("popover");
+    const popoverText = document.getElementById("popoverText");
+    const saveNodeBtn = document.getElementById("saveNodeBtn");
+    const deleteNodeBtn = document.getElementById("deleteNodeBtn");
+
+    // ---- Image upload ----
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        state.imageData = ev.target.result;
+        bgImage.src = state.imageData;
+        emptyState.classList.add("hidden-imp");
+        canvasContainer.classList.remove("hidden-imp");
+        exportBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    bgImage.addEventListener("load", () => {
+      redraw();
+    });
+
+    // ---- Opacity ----
+    opacitySlider.addEventListener("input", () => {
+      state.opacity = opacitySlider.value / 100;
+      opacityVal.textContent = opacitySlider.value + "%";
+      bgImage.style.opacity = state.opacity;
+    });
+
+    // ---- Placing nodes ----
+    // Track drag so a drag doesn't create a new node.
+    let suppressCanvasClick = false;
+
+    canvasWrap.addEventListener("click", (e) => {
+      if (suppressCanvasClick) {
+        suppressCanvasClick = false;
+        return;
+      }
+      // Ignore clicks that originate on a node.
+      if (e.target.closest(".ie-node")) return;
+      if (!state.imageData) return;
+
+      const rect = canvasWrap.getBoundingClientRect();
+      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+      const node = {
+        id: ++nodeSeq,
+        xPct: clamp(xPct),
+        yPct: clamp(yPct),
+        text: "",
+      };
+      state.nodes.push(node);
+      renderNodes();
+      redraw();
+      openPopover(node.id);
+    });
+
+    function clamp(v) {
+      return Math.max(0, Math.min(100, v));
+    }
+
+    // ---- Render node markers ----
+    function renderNodes() {
+      // Remove existing markers
+      canvasWrap.querySelectorAll(".ie-node").forEach((n) => n.remove());
+
+      state.nodes.forEach((node, idx) => {
+        const el = document.createElement("div");
+        el.className = "ie-node";
+        el.dataset.id = node.id;
+        el.style.left = node.xPct + "%";
+        el.style.top = node.yPct + "%";
+        el.innerHTML =
+          '<i class="fa-solid fa-microphone"></i>' +
+          '<span class="ie-order">' + (idx + 1) + "</span>";
+        attachNodeHandlers(el, node);
+        canvasWrap.appendChild(el);
+      });
+
+      nodeCountEl.textContent = state.nodes.length;
+    }
+
+    // ---- Node drag + click ----
+    function attachNodeHandlers(el, node) {
+      let dragging = false;
+      let moved = false;
+      let startX = 0;
+      let startY = 0;
+
+      el.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        dragging = true;
+        moved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        el.setPointerCapture(e.pointerId);
+        el.classList.add("dragging");
+      });
+
+      el.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) {
+          moved = true;
+        }
+        const rect = canvasWrap.getBoundingClientRect();
+        node.xPct = clamp(((e.clientX - rect.left) / rect.width) * 100);
+        node.yPct = clamp(((e.clientY - rect.top) / rect.height) * 100);
+        el.style.left = node.xPct + "%";
+        el.style.top = node.yPct + "%";
+        redraw();
+      });
+
+      el.addEventListener("pointerup", (e) => {
+        if (!dragging) return;
+        dragging = false;
+        el.classList.remove("dragging");
+        el.releasePointerCapture(e.pointerId);
+        if (moved) {
+          // Was a drag: suppress the click-to-create on canvas.
+          suppressCanvasClick = true;
+        } else {
+          // Was a tap: open the editor popover.
+          openPopover(node.id);
+        }
+      });
+    }
+
+    // ---- Popover editing ----
+    function openPopover(id) {
+      activeNodeId = id;
+      const node = state.nodes.find((n) => n.id === id);
+      if (!node) return;
+      popoverText.value = node.text || "";
+
+      const el = canvasWrap.querySelector('.ie-node[data-id="' + id + '"]');
+      const nodeRect = el.getBoundingClientRect();
+
+      popover.classList.remove("hidden-imp");
+      // Position above the node, in page coordinates.
+      const top = window.scrollY + nodeRect.top - popover.offsetHeight - 14;
+      const left = window.scrollX + nodeRect.left + nodeRect.width / 2 - 20;
+      popover.style.top = Math.max(8, top) + "px";
+      popover.style.left = Math.max(8, left) + "px";
+      popoverText.focus();
+    }
+
+    function closePopover() {
+      popover.classList.add("hidden-imp");
+      activeNodeId = null;
+    }
+
+    popoverText.addEventListener("input", () => {
+      const node = state.nodes.find((n) => n.id === activeNodeId);
+      if (node) node.text = popoverText.value;
+    });
+
+    saveNodeBtn.addEventListener("click", () => {
+      closePopover();
+    });
+
+    deleteNodeBtn.addEventListener("click", () => {
+      state.nodes = state.nodes.filter((n) => n.id !== activeNodeId);
+      closePopover();
+      renderNodes();
+      redraw();
+    });
+
+    // Close popover when clicking elsewhere.
+    document.addEventListener("pointerdown", (e) => {
+      if (popover.classList.contains("hidden-imp")) return;
+      if (popover.contains(e.target)) return;
+      if (e.target.closest(".ie-node")) return;
+      closePopover();
+    });
+
+    // ---- Bezier line drawing ----
+    // Build a smooth path through the node points using a Catmull-Rom-like
+    // control point scheme, split into per-segment paths so each segment can
+    // carry an arrowhead pointing at the next node.
+    function buildSegmentPath(points, i) {
+      const p0 = points[i - 1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+
+      const smooth = 0.18;
+      const c1x = p1.x + (p2.x - p0.x) * smooth;
+      const c1y = p1.y + (p2.y - p0.y) * smooth;
+      const c2x = p2.x - (p3.x - p1.x) * smooth;
+      const c2y = p2.y - (p3.y - p1.y) * smooth;
+
+      return (
+        "M " + p1.x + " " + p1.y +
+        " C " + c1x + " " + c1y + " " + c2x + " " + c2y + " " + p2.x + " " + p2.y
+      );
+    }
+
+    function redraw() {
+      const w = canvasWrap.clientWidth;
+      const h = canvasWrap.clientHeight;
+      if (!w || !h) return;
+      linesSvg.setAttribute("viewBox", "0 0 " + w + " " + h);
+
+      // Remove old paths (keep <defs>).
+      linesSvg.querySelectorAll("path.ie-line").forEach((p) => p.remove());
+
+      const pts = state.nodes.map((n) => ({
+        x: (n.xPct / 100) * w,
+        y: (n.yPct / 100) * h,
+      }));
+
+      // Shorten each segment endpoint so the arrow sits just outside the target.
+      for (let i = 0; i < pts.length - 1; i++) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const trimmed = trimSegment(pts, i, 22);
+        path.setAttribute("class", "ie-line");
+        path.setAttribute("d", buildSegmentPath(trimmed.points, trimmed.index));
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", "#660000");
+        path.setAttribute("stroke-width", "3");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("marker-end", "url(#arrow)");
+        linesSvg.appendChild(path);
+      }
+    }
+
+    // Produce a copy of the point list where the target end of segment i is
+    // pulled back by `gap` pixels so the arrowhead clears the node circle.
+    function trimSegment(pts, i, gap) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nb = { x: b.x - (dx / len) * gap, y: b.y - (dy / len) * gap };
+      const copy = pts.slice();
+      // Build a local 4-point window with the trimmed endpoint.
+      const window = [
+        pts[i - 1] || a,
+        a,
+        nb,
+        pts[i + 2] || nb,
+      ];
+      return { points: window, index: 1 };
+    }
+
+    window.addEventListener("resize", redraw);
+
+    // ---- Export ----
+    exportBtn.addEventListener("click", exportHtml);
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function exportHtml() {
+      if (!state.imageData) return;
+      const payload = {
+        image: state.imageData,
+        opacity: state.opacity,
+        nodes: state.nodes.map((n) => ({
+          xPct: n.xPct,
+          yPct: n.yPct,
+          text: n.text || "",
+        })),
+      };
+      const html = buildExportedHtml(payload);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "interactive-image.html";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // The exported document is fully self-contained and read-only.
+    // Positioning is percentage-based so it scales inside an iframe.
+    function buildExportedHtml(payload) {
+      const dataJson = JSON.stringify(payload).replace(/</g, "\\u003c");
+      return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Interactive Image</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .ii-wrap { position: relative; width: 100%; max-width: 100%; margin: 0 auto; display: block; }
+  .ii-img { display: block; width: 100%; height: auto; }
+  .ii-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+  .ii-node {
+    position: absolute;
+    width: 6.5%;
+    aspect-ratio: 1 / 1;
+    min-width: 26px;
+    max-width: 46px;
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    background: #0856c9;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    cursor: pointer;
+    z-index: 20;
+  }
+  .ii-node i { font-size: 14px; pointer-events: none; }
+  .ii-tooltip {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: #0856c9;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.35;
+    max-width: 220px;
+    width: max-content;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 50;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+    margin-top: -14px;
+  }
+  .ii-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 7px 7px 0 7px;
+    border-style: solid;
+    border-color: #0856c9 transparent transparent transparent;
+  }
+  .ii-tooltip.show { opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+<div class="ii-wrap" id="iiWrap">
+  <img class="ii-img" id="iiImg" alt="interactive" />
+  <svg class="ii-svg" id="iiSvg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="iiArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#660000"></path>
+      </marker>
+    </defs>
+  </svg>
+</div>
+<script>
+(function(){
+  var DATA = ${dataJson};
+  var wrap = document.getElementById("iiWrap");
+  var img = document.getElementById("iiImg");
+  var svg = document.getElementById("iiSvg");
+
+  img.src = DATA.image;
+  img.style.opacity = DATA.opacity;
+
+  // Nodes
+  DATA.nodes.forEach(function(n, idx){
+    var node = document.createElement("div");
+    node.className = "ii-node";
+    node.style.left = n.xPct + "%";
+    node.style.top = n.yPct + "%";
+    node.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+
+    if (n.text && n.text.trim().length) {
+      var tip = document.createElement("div");
+      tip.className = "ii-tooltip";
+      tip.style.left = n.xPct + "%";
+      tip.style.top = n.yPct + "%";
+      tip.textContent = n.text;
+      wrap.appendChild(tip);
+
+      var show = function(){ tip.classList.add("show"); };
+      var hide = function(){ tip.classList.remove("show"); };
+      node.addEventListener("mouseenter", show);
+      node.addEventListener("mouseleave", hide);
+      node.addEventListener("click", function(e){
+        e.stopPropagation();
+        tip.classList.toggle("show");
+      });
+    }
+    wrap.appendChild(node);
+  });
+
+  function buildSegmentPath(points, i){
+    var p0 = points[i-1] || points[i];
+    var p1 = points[i];
+    var p2 = points[i+1];
+    var p3 = points[i+2] || p2;
+    var s = 0.18;
+    var c1x = p1.x + (p2.x - p0.x) * s;
+    var c1y = p1.y + (p2.y - p0.y) * s;
+    var c2x = p2.x - (p3.x - p1.x) * s;
+    var c2y = p2.y - (p3.y - p1.y) * s;
+    return "M " + p1.x + " " + p1.y + " C " + c1x + " " + c1y + " " + c2x + " " + c2y + " " + p2.x + " " + p2.y;
+  }
+
+  function trimSegment(pts, i, gap){
+    var a = pts[i], b = pts[i+1];
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx*dx + dy*dy) || 1;
+    var nb = { x: b.x - (dx/len)*gap, y: b.y - (dy/len)*gap };
+    return [ pts[i-1] || a, a, nb, pts[i+2] || nb ];
+  }
+
+  function draw(){
+    var w = wrap.clientWidth, h = wrap.clientHeight;
+    if (!w || !h) return;
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    var old = svg.querySelectorAll("path.ii-line");
+    old.forEach(function(p){ p.remove(); });
+
+    var pts = DATA.nodes.map(function(n){
+      return { x: (n.xPct/100)*w, y: (n.yPct/100)*h };
+    });
+    var gap = Math.max(16, w * 0.03);
+    for (var i = 0; i < pts.length - 1; i++){
+      var win = trimSegment(pts, i, gap);
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "ii-line");
+      path.setAttribute("d", buildSegmentPath(win, 1));
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "#660000");
+      path.setAttribute("stroke-width", "3");
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("marker-end", "url(#iiArrow)");
+      svg.appendChild(path);
+    }
+  }
+
+  if (img.complete) { draw(); } else { img.addEventListener("load", draw); }
+  window.addEventListener("resize", draw);
+})();
+<\/script>
+</body>
+</html>`;
+    }
+  </script>
+</body>
+</html>
