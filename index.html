@@ -188,21 +188,7 @@
       <div id="canvasContainer" class="hidden-imp overflow-auto">
         <div id="canvasWrap">
           <img id="bgImage" alt="background" style="opacity: 0.7" />
-          <svg id="linesSvg" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <marker
-                id="arrow"
-                viewBox="0 0 10 10"
-                refX="8"
-                refY="5"
-                markerWidth="7"
-                markerHeight="7"
-                orient="auto-start-reverse"
-              >
-                <path d="M0,0 L10,5 L0,10 z" fill="#5b9bf5" />
-              </marker>
-            </defs>
-          </svg>
+          <svg id="linesSvg" xmlns="http://www.w3.org/2000/svg"></svg>
           <!-- Node markers injected here -->
         </div>
       </div>
@@ -437,21 +423,30 @@
     // Build a smooth path through the node points using a Catmull-Rom-like
     // control point scheme, split into per-segment paths so each segment can
     // carry an arrowhead pointing at the next node.
-    function buildSegmentPath(points, i) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
+    // Nearest of the four connection points (12/3/6/9 o'clock) to a direction.
+    function cardinalDir(dx, dy) {
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        return dx >= 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
+      }
+      return dy >= 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
+    }
 
-      const smooth = 0.18;
-      const c1x = p1.x + (p2.x - p0.x) * smooth;
-      const c1y = p1.y + (p2.y - p0.y) * smooth;
-      const c2x = p2.x - (p3.x - p1.x) * smooth;
-      const c2y = p2.y - (p3.y - p1.y) * smooth;
-
+    // Curve between two node centers that attaches at cardinal connection
+    // points and leaves each circle perpendicular to its edge.
+    function connectorPath(a, b, r) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const uA = cardinalDir(dx, dy);
+      const uB = cardinalDir(-dx, -dy);
+      const p1 = { x: a.x + uA.x * r, y: a.y + uA.y * r };
+      const p2 = { x: b.x + uB.x * r, y: b.y + uB.y * r };
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const k = Math.max(18, dist * 0.4);
+      const c1 = { x: p1.x + uA.x * k, y: p1.y + uA.y * k };
+      const c2 = { x: p2.x + uB.x * k, y: p2.y + uB.y * k };
       return (
         "M " + p1.x + " " + p1.y +
-        " C " + c1x + " " + c1y + " " + c2x + " " + c2y + " " + p2.x + " " + p2.y
+        " C " + c1.x + " " + c1.y + " " + c2.x + " " + c2.y + " " + p2.x + " " + p2.y
       );
     }
 
@@ -464,44 +459,22 @@
       // Remove old paths (keep <defs>).
       linesSvg.querySelectorAll("path.ie-line").forEach((p) => p.remove());
 
+      const r = 27; // node radius in px (matches .ie-node)
       const pts = state.nodes.map((n) => ({
         x: (n.xPct / 100) * w,
         y: (n.yPct / 100) * h,
       }));
 
-      // Shorten each segment endpoint so the arrow sits just outside the target.
       for (let i = 0; i < pts.length - 1; i++) {
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        const trimmed = trimSegment(pts, i, 30);
         path.setAttribute("class", "ie-line");
-        path.setAttribute("d", buildSegmentPath(trimmed.points, trimmed.index));
+        path.setAttribute("d", connectorPath(pts[i], pts[i + 1], r));
         path.setAttribute("fill", "none");
         path.setAttribute("stroke", "#5b9bf5");
         path.setAttribute("stroke-width", "3");
         path.setAttribute("stroke-linecap", "round");
-        path.setAttribute("marker-end", "url(#arrow)");
         linesSvg.appendChild(path);
       }
-    }
-
-    // Produce a copy of the point list where the target end of segment i is
-    // pulled back by `gap` pixels so the arrowhead clears the node circle.
-    function trimSegment(pts, i, gap) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const nb = { x: b.x - (dx / len) * gap, y: b.y - (dy / len) * gap };
-      const copy = pts.slice();
-      // Build a local 4-point window with the trimmed endpoint.
-      const window = [
-        pts[i - 1] || a,
-        a,
-        nb,
-        pts[i + 2] || nb,
-      ];
-      return { points: window, index: 1 };
     }
 
     window.addEventListener("resize", redraw);
@@ -578,6 +551,24 @@
     z-index: 20;
   }
   .ii-node i { font-size: clamp(18px, 3.5vw, 30px); pointer-events: none; }
+  .ii-order {
+    position: absolute;
+    top: -8%;
+    right: -8%;
+    width: 44%;
+    max-width: 22px;
+    aspect-ratio: 1 / 1;
+    background: #660000;
+    color: #fff;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(10px, 1.6vw, 13px);
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+  }
   .ii-tooltip {
     position: absolute;
     transform: translate(-50%, -100%);
@@ -613,13 +604,7 @@
 <body>
 <div class="ii-wrap" id="iiWrap">
   <img class="ii-img" id="iiImg" alt="interactive" />
-  <svg class="ii-svg" id="iiSvg" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="iiArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#5b9bf5"></path>
-      </marker>
-    </defs>
-  </svg>
+  <svg class="ii-svg" id="iiSvg" xmlns="http://www.w3.org/2000/svg"></svg>
 </div>
 <script>
 (function(){
@@ -637,7 +622,7 @@
     node.className = "ii-node";
     node.style.left = n.xPct + "%";
     node.style.top = n.yPct + "%";
-    node.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+    node.innerHTML = '<i class="fa-solid fa-microphone"></i><span class="ii-order">' + (idx + 1) + '</span>';
 
     if (n.text && n.text.trim().length) {
       var tip = document.createElement("div");
@@ -659,25 +644,24 @@
     wrap.appendChild(node);
   });
 
-  function buildSegmentPath(points, i){
-    var p0 = points[i-1] || points[i];
-    var p1 = points[i];
-    var p2 = points[i+1];
-    var p3 = points[i+2] || p2;
-    var s = 0.18;
-    var c1x = p1.x + (p2.x - p0.x) * s;
-    var c1y = p1.y + (p2.y - p0.y) * s;
-    var c2x = p2.x - (p3.x - p1.x) * s;
-    var c2y = p2.y - (p3.y - p1.y) * s;
-    return "M " + p1.x + " " + p1.y + " C " + c1x + " " + c1y + " " + c2x + " " + c2y + " " + p2.x + " " + p2.y;
+  function cardinalDir(dx, dy){
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
+    }
+    return dy >= 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
   }
 
-  function trimSegment(pts, i, gap){
-    var a = pts[i], b = pts[i+1];
+  function connectorPath(a, b, r){
     var dx = b.x - a.x, dy = b.y - a.y;
-    var len = Math.sqrt(dx*dx + dy*dy) || 1;
-    var nb = { x: b.x - (dx/len)*gap, y: b.y - (dy/len)*gap };
-    return [ pts[i-1] || a, a, nb, pts[i+2] || nb ];
+    var uA = cardinalDir(dx, dy);
+    var uB = cardinalDir(-dx, -dy);
+    var p1 = { x: a.x + uA.x*r, y: a.y + uA.y*r };
+    var p2 = { x: b.x + uB.x*r, y: b.y + uB.y*r };
+    var dist = Math.sqrt((p2.x-p1.x)*(p2.x-p1.x) + (p2.y-p1.y)*(p2.y-p1.y));
+    var k = Math.max(18, dist*0.4);
+    var c1 = { x: p1.x + uA.x*k, y: p1.y + uA.y*k };
+    var c2 = { x: p2.x + uB.x*k, y: p2.y + uB.y*k };
+    return "M " + p1.x + " " + p1.y + " C " + c1.x + " " + c1.y + " " + c2.x + " " + c2.y + " " + p2.x + " " + p2.y;
   }
 
   function draw(){
@@ -687,20 +671,19 @@
     var old = svg.querySelectorAll("path.ii-line");
     old.forEach(function(p){ p.remove(); });
 
+    var nodeEl = wrap.querySelector(".ii-node");
+    var r = nodeEl ? nodeEl.offsetWidth / 2 : Math.max(20, w * 0.04);
     var pts = DATA.nodes.map(function(n){
       return { x: (n.xPct/100)*w, y: (n.yPct/100)*h };
     });
-    var gap = Math.max(26, w * 0.045);
     for (var i = 0; i < pts.length - 1; i++){
-      var win = trimSegment(pts, i, gap);
       var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("class", "ii-line");
-      path.setAttribute("d", buildSegmentPath(win, 1));
+      path.setAttribute("d", connectorPath(pts[i], pts[i+1], r));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", "#5b9bf5");
       path.setAttribute("stroke-width", "3");
       path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("marker-end", "url(#iiArrow)");
       svg.appendChild(path);
     }
   }
