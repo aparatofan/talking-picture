@@ -35,7 +35,9 @@ function tp_register_post_type() {
 			// no public single-view route is needed.
 			'public'          => false,
 			'show_ui'         => true,
-			'show_in_menu'    => true,
+			// Nest under the TBT hub menu when it is active; fall back to a
+			// top-level menu of its own when the hub is deactivated.
+			'show_in_menu'    => defined( 'TBT_HUB_SLUG' ) ? TBT_HUB_SLUG : true,
 			'show_in_rest'    => false, // Use the classic editor so our canvas metabox is reliable.
 			'menu_icon'       => 'dashicons-microphone',
 			'menu_position'   => 25,
