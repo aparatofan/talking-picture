@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name:       Talking Picture
+ * Plugin Name:       TBT Talking Picture
  * Plugin URI:        https://github.com/aparatofan/talking-picture
  * Description:        Build interactive "Talking Pictures" — drop microphone nodes with tooltips onto an image from your Media Library, keep them all in a reusable library, and embed any one with a shortcode.
  * Version:           1.0.0
@@ -53,3 +53,25 @@ register_deactivation_hook(
 		flush_rewrite_rules();
 	}
 );
+
+/**
+ * Register this plugin on the TBT Hub Overview page.
+ *
+ * Loaded unconditionally. The Overview card links to the custom post type
+ * list via the `url` key, since this plugin is managed entirely through its
+ * post type and has no admin.php?page=… screen of its own.
+ *
+ * @param array $items Existing hub items.
+ * @return array
+ */
+function tp_register_hub_item( $items ) {
+	$items[] = array(
+		'slug'        => 'tbt-talking-picture',
+		'title'       => 'TBT Talking Picture',
+		'description' => 'Interactive images with clickable microphone nodes and tooltips, embedded by shortcode.',
+		'capability'  => 'edit_posts',
+		'url'         => admin_url( 'edit.php?post_type=' . TP_POST_TYPE ),
+	);
+	return $items;
+}
+add_filter( 'tbt_hub_items', 'tp_register_hub_item' );
